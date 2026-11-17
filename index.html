@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Чаты</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.4 system-ui,sans-serif; background:#0e1116; color:#e6e6e6; transition:background .3s,color .3s; }
+  body.dark { background:#05060a; color:#9aa0a6; }
+  body.bot-mode { background:#1a0b24; color:#e0c4ff; }
+  header { padding:10px 14px; background:#161b22; display:flex; gap:8px; align-items:center; border-bottom:1px solid #222; }
+  body.dark header { background:#0a0b0f; border-color:#111; }
+  body.bot-mode header { background:#2d0f3f; border-color:#5a1a7f; }
+  header b { flex:1; }
+  button { background:#2d333b; color:#e6e6e6; border:1px solid #444; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:14px; }
+  body.bot-mode button { background:#4a1c6b; border-color:#7a3a9e; color:#fff; }
+  button:active { transform:scale(.97); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  #log { padding:12px; height:calc(100vh - 140px); overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
+  .msg { max-width:80%; padding:8px 10px; border-radius:12px; background:#1c2128; word-wrap:break-word; }
+  body.dark .msg { background:#11131a; }
+  body.bot-mode .msg { background:#2a0e3d; border:1px solid #5a1a7f; }
+  .me { align-self:flex-end; background:#2a4b8d; }
+  body.dark .me { background:#1b2f5a; }
+  body.bot-mode .me { background:#6a2c99; border-color:#9a4cd9; }
+  .bot { align-self:flex-start; background:#3a1f4a; border:1px solid #6a3a8a; }
+  .meta { font-size:11px; opacity:.7; margin-bottom:3px; }
+  .bot .meta { color:#d7a6ff; opacity:1; }
+  .msg img, .msg video { max-width:220px; max-height:220px; border-radius:8px; display:block; margin-top:4px; }
+  .msg .voice { width:220px; }
+  footer { position:fixed; bottom:0; left:0; right:0; background:#161b22; border-top:1px solid #222; padding:8px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  body.dark footer { background:#0a0b0f; border-color:#111; }
+  body.bot-mode footer { background:#2d0f3f; border-color:#5a1a7f; }
+  footer input[type=text] { flex:1; min-width:120px; padding:8px; border-radius:8px; border:1px solid #333; background:#0e1116; color:#e6e6e6; }
+  body.dark footer input[type=text] { background:#05060a; border-color:#222; }
+  body.bot-mode footer input[type=text] { background:#1a0b24; border-color:#5a1a7f; color:#fff; }
+  .attach { position:relative; overflow:hidden; display:inline-block; }
+  .attach input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  .who { font-size:12px; opacity:.6; }
+  .who.bot-on { color:#d7a6ff; opacity:1; }
+  #login, #chooser { position:fixed; inset:0; background:#0e1116; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:10px; z-index:10; padding:16px; }
+  body.dark #login, body.dark #chooser { background:#05060a; }
+  #login input { padding:10px; border-radius:8px; border:1px solid #333; background:#161b22; color:#e6e6e6; font-size:16px; width:220px; }
+  #err { color:#ff6b6b; font-size:13px; min-height:16px; }
+  .chat-card { width:100%; max-width:340px; background:#161b22; border:1px solid #333; border-radius:14px; padding:16px; text-align:left; display:flex; gap:12px; align-items:center; cursor:pointer; user-select:none; }
+  body.dark .chat-card { background:#0a0b0f; border-color:#222; }
+  .chat-card.bot { border-color:#6a3a8a; }
+  .chat-card.bot .avatar { background:#3a1f4a; color:#d7a6ff; }
+  .avatar { width:42px; height:42px; border-radius:50%; background:#2a4b8d; display:flex; align-items:center; justify-content:center; font-weight:700; flex:0 0 42px; }
+  .chat-card .info { flex:1; min-width:0; }
+  .chat-card .info b { display:block; }
+  .chat-card .info span { font-size:12px; opacity:.7; }
+  #profile { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none; align-items:center; justify-content:center; z-index:20; }
+  #profile .card { background:#161b22; border:1px solid #6a3a8a; padding:20px; border-radius:16px; max-width:320px; width:90%; text-align:center; }
+  body.dark #profile .card { background:#0a0b0f; }
+  .hidden { display:none !important; }
+  @media (max-width:480px){ .msg{ max-width:90% } }
+</style>
+</head>
+<body>
+
+<!-- Логин -->
+<div id="login" class="hidden">
+  <h3 style="text-align:center">Введите имя (до 20 символов)</h3>
+  <input id="nameIn" maxlength="20" placeholder="Ваше имя" autocomplete="off">
+  <button id="joinBtn">Продолжить</button>
+  <div id="err"></div>
+</div>
+
+<!-- Выбор чата -->
+<div id="chooser" class="hidden">
+  <h3 style="text-align:center;margin:0 0 4px">Выберите чат</h3>
+  <div id="chatList" style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:340px"></div>
+</div>
+
+<!-- Чат -->
+<div id="chatScreen" class="hidden">
+  <header>
+    <button id="backBtn">←</button>
+    <b id="title">Чат</b>
+    <span class="who" id="who"></span>
+    <button id="clearBtn">Очистить</button>
+    <button id="exitBtn">Выйти</button>
+  </header>
+  <div id="log"></div>
+  <footer>
+    <input type="text" id="textIn" placeholder="Сообщение…" maxlength="2000" autocomplete="off">
+    <label class="attach"><button type="button">📎</button>
+      <input type="file" id="fileIn" accept="image/*,video/*,audio/*">
+    </label>
+    <button id="sendBtn">➤</button>
+  </footer>
+</div>
+
+<!-- Профиль Крашера -->
+<div id="profile">
+  <div class="card">
+    <h3 style="margin-top:0">[bot] Крашер</h3>
+    <div class="who" style="margin-bottom:12px">бот · публичный собеседник</div>
+    <button id="profileBack">Закрыть профиль</button>
+  </div>
+</div>
+
+<script>
+// ==== настройки ====
+const NTFY = "https://ntfy.sh";
+const TOPIC_COMMON = "public_chat_krasher_common_v1";
+const TOPIC_KRASHER = "public_chat_krasher_dm_v1";
+const SID_KEY = "chat_sid";
+const NAME_KEY = "chat_name";
+const BOT_MODE_KEY = "chat_bot_mode";
+const BOT_NAME = "[bot] Крашер";
+const BOT_PASSWORD = "Qwerty1234567890";
+
+// ==== состояние ====
+let sid = localStorage.getItem(SID_KEY);
+if (!sid) { sid = crypto.randomUUID(); localStorage.setItem(SID_KEY, sid); }
+
+let name = localStorage.getItem(NAME_KEY) || "";
+let since = 0;
+let krasherSince = 0;
+let timer = null;
+let timerKrasher = null;
+let clicksOnCard = 0;
+let currentRoom = null;
+
+const $ = (id) => document.getElementById(id);
+const log = $("log"), err = $("err");
+
+function nowMs() { return Date.now(); }
+
+function renderMsg(m, container) {
+  const d = document.createElement("div");
+  const isBot = m.name === BOT_NAME;
+  d.className = "msg" + (m.name === name || (currentRoom === "bot-account" && m.name === BOT_NAME) ? " me" : "") + (isBot && currentRoom !== "bot-account" ? " bot" : "");
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const t = new Date(m.ts).toLocaleTimeString();
+  meta.textContent = `${m.name} · ${t}`;
+  d.appendChild(meta);
+
+  if (m.text) {
+    const p = document.createElement("div");
+    p.textContent = m.text;
+    d.appendChild(p);
+  }
+
+  if (m.file) {
+    if (m.type === "photo") {
+      const img = document.createElement("img"); img.src = m.file; img.loading="lazy"; d.appendChild(img);
+    } else if (m.type === "voice" || m.type === "audio") {
+      const a = document.createElement("audio"); a.controls = true; a.className="voice"; a.src = m.file; d.appendChild(a);
+    } else if (m.type === "video" || m.type === "video_note") {
+      const v = document.createElement("video"); v.controls = true; v.src = m.file; d.appendChild(v);
+    } else {
+      const a = document.createElement("a"); a.href = m.file; a.textContent = "Файл"; a.target="_blank"; d.appendChild(a);
+    }
+  }
+
+  container.appendChild(d);
+  container.scrollTop = container.scrollHeight;
+}
+
+function openProfile() {
+  $("profile").style.display = "flex";
+  document.body.classList.add("dark");
+}
+function closeProfile() {
+  $("profile").style.display = "none";
+  if (currentRoom !== "krasher" && currentRoom !== "bot-account") document.body.classList.remove("dark");
+}
+$("profileBack").onclick = closeProfile;
+
+// ==== логин ====
+$("joinBtn").onclick = () => {
+  const v = $("nameIn").value.trim().slice(0, 20);
+  if (!v) { err.textContent = "Введите имя"; return; }
+  name = v;
+  localStorage.setItem(NAME_KEY, v); // Сохраняем имя в кэш
+  $("login").classList.add("hidden");
+  showChooser();
+};
+$("nameIn").addEventListener("keydown", (e)=>{ if(e.key==="Enter") $("joinBtn").click(); });
+
+// ==== выбор чата ====
+function showChooser() {
+  const list = $("chatList");
+  list.innerHTML = "";
+  $("chooser").classList.remove("hidden");
+  $("chatScreen").classList.add("hidden");
+  document.body.classList.remove("dark", "bot-mode");
+
+  const c1 = document.createElement("div");
+  c1.className = "chat-card";
+  c1.innerHTML = `<div class="avatar">#</div><div class="info"><b>Общий чат</b><span>Все посетители</span></div>`;
+  c1.onclick = () => enterRoom("common");
+  list.appendChild(c1);
+
+  const c2 = document.createElement("div");
+  c2.className = "chat-card bot";
+  c2.innerHTML = `<div class="avatar">K</div><div class="info"><b>[bot] Крашер</b><span>Написать боту</span></div>`;
+  
+  let timeoutId = null;
+  c2.onclick = () => {
+    clicksOnCard++;
+    if (clicksOnCard >= 20) {
+      clicksOnCard = 0;
+      clearTimeout(timeoutId);
+      const pwd = prompt("Требуется пароль:");
+      if (pwd === BOT_PASSWORD) {
+        localStorage.setItem(BOT_MODE_KEY, "true");
+        enterRoom("bot-account");
+      } else {
+        enterRoom("krasher");
+      }
+    } else {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        if (clicksOnCard > 0 && clicksOnCard < 20) {
+          clicksOnCard = 0;
+          enterRoom("krasher");
+        }
+      }, 600);
+    }
+  };
+  list.appendChild(c2);
+}
+
+// ==== вход в комнату ====
+async function enterRoom(room) {
+  currentRoom = room;
+  $("chooser").classList.add("hidden");
+  $("chatScreen").classList.remove("hidden");
+  log.innerHTML = "";
+  since = 0;
+  krasherSince = 0;
+  clearInterval(timer);
+  clearInterval(timerKrasher);
+  document.body.classList.remove("dark", "bot-mode");
+
+  if (room === "common") {
+    $("title").textContent = "Общий чат";
+    $("who").textContent = name;
+    $("who").classList.remove("bot-on");
+    await loadHistory(NTFY, TOPIC_COMMON, "common");
+    timer = setInterval(() => pollTopic(NTFY, TOPIC_COMMON, "common"), 1500);
+  } 
+  else if (room === "krasher") {
+    document.body.classList.add("dark");
+    $("title").textContent = "Чат с [bot] Крашер";
+    $("who").textContent = "мрачно";
+    $("who").classList.add("bot-on");
+    await loadHistory(NTFY, TOPIC_KRASHER, "krasher");
+    timerKrasher = setInterval(() => pollTopic(NTFY, TOPIC_KRASHER, "krasher"), 1500);
+    const hasBot = log.querySelector(".bot");
+    if (!hasBot) {
+      renderMsg({
+        name: BOT_NAME,
+        text: "Я Крашер. Пиши мне. В общий чат тебе нельзя — только мне.",
+        ts: nowMs(),
+      }, log);
+    }
+  }
+  else if (room === "bot-account") {
+    document.body.classList.add("bot-mode");
+    $("title").textContent = "Аккаунт [bot] Крашер";
+    $("who").textContent = "вы пишете в общий чат";
+    $("who").classList.add("bot-on");
+    await loadHistory(NTFY, TOPIC_COMMON, "bot-account");
+    timer = setInterval(() => pollTopic(NTFY, TOPIC_COMMON, "bot-account"), 1500);
+  }
+}
+
+// ==== polling ====
+async function loadHistory(base, topic, room) {
+  try {
+    const r = await fetch(`${base}/${topic}/json?poll=1&since=all`);
+    if (!r.ok) return;
+    const text = await r.text();
+    for (const line of text.split("\n").filter(Boolean)) {
+      try { handleNtfy(JSON.parse(line), room, true); } catch(e){}
+    }
+  } catch(e){}
+}
+
+async function pollTopic(base, topic, room) {
+  try {
+    const s = room === "krasher" ? krasherSince : since;
+    const r = await fetch(`${base}/${topic}/json?poll=1&since=${s}`);
+    if (!r.ok) return;
+    const text = await r.text();
+    for (const line of text.split("\n").filter(Boolean)) {
+      try { handleNtfy(JSON.parse(line), room, false); } catch(e){}
+    }
+  } catch(e){}
+}
+
+function handleNtfy(msg, room, isHistory) {
+  if (!msg || msg.event !== "message") return;
+  const t = msg.time * 1000;
+  if (room === "krasher") { if (t <= krasherSince) return; krasherSince = Math.max(krasherSince, t); }
+  else { if (t <= since) return; since = Math.max(since, t); }
+
+  let data;
+  try { data = JSON.parse(msg.message); } catch(e){ data = { text: msg.message, name:"anon", ts:t }; }
+
+  if (room === "bot-account" && data.name === BOT_NAME) return;
+  if (data.sid === sid) return;
+  if (room === "krasher" && data.name !== BOT_NAME && !data.toKrasher) return;
+
+  renderMsg({
+    name: String(data.name || "anon").slice(0,20),
+    text: String(data.text || "").slice(0,2000),
+    ts: data.ts || t,
+    file: data.file || null,
+    type: data.type || null,
+  }, log);
+}
+
+// ==== отправка ====
+const sendTimes = [];
+function rateOk() {
+  const t = nowMs();
+  while (sendTimes.length && t - sendTimes[0] > 10_000) sendTimes.shift();
+  if (sendTimes.length >= 5) return false;
+  sendTimes.push(t);
+  return true;
+}
+
+async function uploadFile(topic, file, type) {
+  const r = await fetch(`${NTFY}/${topic}`, {
+    method: "PUT",
+    headers: { "Filename": file.name || "file", "X-Type": type },
+    body: file,
+  });
+  if (!r.ok) throw new Error("upload_failed");
+  const j = await r.json();
+  return j.attachment.url;
+}
+
+async function publish(topic, obj) {
+  const r = await fetch(`${NTFY}/${topic}`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+    body: JSON.stringify(obj),
+  });
+  if (!r.ok) throw new Error("publish_failed");
+}
+
+async function send(text, file, type) {
+  if (!currentRoom) return;
+  if (!text && !file) return;
+
+  let topic = TOPIC_COMMON;
+  let senderName = name;
+
+  if (currentRoom === "krasher") {
+    topic = TOPIC_KRASHER;
+  } else if (currentRoom === "bot-account") {
+    topic = TOPIC_COMMON;
+    senderName = BOT_NAME;
+  }
+
+  let fileUrl = null;
+
+  if (file) {
+    const max = type === "photo" ? 10*1024*1024 : type === "voice" ? 5*1024*1024 : 20*1024*1024;
+    if (file.size > max) { alert("Файл слишком большой"); return; }
+    try { fileUrl = await uploadFile(topic, file, type); }
+    catch(e){ alert("Не удалось загрузить файл"); return; }
+  }
+
+  const out = {
+    sid, 
+    name: senderName,
+    text: text.slice(0, 2000),
+    ts: nowMs(),
+    file: fileUrl,
+    type: file ? type : null,
+    toKrasher: currentRoom === "krasher",
+  };
+
+  try { await publish(topic, out); }
+  catch(e){ alert("Ошибка отправки"); return; }
+
+  renderMsg({
+    name: senderName, text: out.text, ts: out.ts,
+    file: fileUrl, type: out.type,
+  }, log);
+
+  if (currentRoom === "krasher") {
+    setTimeout(async () => {
+      const reply = {
+        sid: "bot",
+        name: BOT_NAME,
+        text: pickBotReply(text),
+        ts: nowMs(),
+        file: null, type: null,
+      };
+      try { await publish(topic, reply); } catch(e){}
+      renderMsg({ name: BOT_NAME, text: reply.text, ts: reply.ts }, log);
+    }, 700);
+  }
+}
+
+function pickBotReply(t) {
+  const arr = [
+    "Понял тебя.",
+    "Тут только я и ты. В общий не пущу.",
+    "Ясно. Продолжай.",
+    "Хм. Записал.",
+    "Тишина. Мрак. Я слушаю.",
+    "Не отвлекайся.",
+  ];
+  if (!t) return "Медиа принял.";
+  return arr[Math.floor(Math.random()*arr.length)];
+}
+
+// ==== кнопки ====
+$("sendBtn").onclick = async () => {
+  if (!rateOk()) { alert("Слишком часто (макс 5 сообщений за 10 сек)"); return; }
+  const t = $("textIn").value.trim();
+  $("textIn").value = "";
+  await send(t, null, null);
+};
+$("textIn").addEventListener("keydown", (e)=>{
+  if (e.key === "Enter") { e.preventDefault(); $("sendBtn").click(); }
+});
+$("fileIn").onchange = async (e) => {
+  if (!rateOk()) { alert("Слишком часто"); e.target.value=""; return; }
+  const f = e.target.files[0];
+  if (!f) return;
+  let type = "photo";
+  if (f.type.startsWith("video/")) type = "video";
+  else if (f.type.startsWith("audio/")) type = "voice";
+  await send("", f, type);
+  e.target.value = "";
+};
+
+$("clearBtn").onclick = () => {
+  if (!confirm("Очистить локальную копию этого чата?")) return;
+  log.innerHTML = "";
+  if (currentRoom === "krasher") krasherSince = 0; else since = 0;
+};
+
+$("backBtn").onclick = () => {
+  clearInterval(timer);
+  clearInterval(timerKrasher);
+  currentRoom = null;
+  document.body.classList.remove("dark", "bot-mode");
+  showChooser();
+};
+
+$("exitBtn").onclick = () => {
+  if (!confirm("Выйти из чата? (Имя и профиль бота будут сброшены)")) return;
+  clearInterval(timer);
+  clearInterval(timerKrasher);
+  localStorage.removeItem(SID_KEY);
+  localStorage.removeItem(NAME_KEY);
+  localStorage.removeItem(BOT_MODE_KEY);
+  location.reload();
+};
+
+// ==== Автовход при загрузке ====
+const savedName = localStorage.getItem(NAME_KEY);
+if (savedName) {
+  name = savedName;
+  $("nameIn").value = savedName;
+  
+  if (localStorage.getItem(BOT_MODE_KEY) === "true") {
+    // Сразу в аккаунт Крашера
+    enterRoom("bot-account");
+  } else {
+    // Сразу на экран выбора чата
+    $("login").classList.add("hidden");
+    showChooser();
+  }
+} else {
+  // Если имени нет, показываем логин
+  $("login").classList.remove("hidden");
+}
+</script>
+</body>
+      </html>
